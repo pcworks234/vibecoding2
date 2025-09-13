@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>수강생 관리 프로그램</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <!-- Navbar -->
+    <nav class="bg-white shadow-lg sticky top-0 z-10">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16 items-center">
+                <h1 class="text-2xl font-bold text-gray-900">수강 관리 프로그램</h1>
+                <div class="flex space-x-4">
+                    <button id="dashboardBtn" class="px-3 py-2 rounded-md text-sm font-medium text-gray-500 hover:text-gray-900 hover:bg-gray-100">대시보드</button>
+                    <button id="studentsBtn" class="px-3 py-2 rounded-md text-sm font-medium text-gray-500 hover:text-gray-900 hover:bg-gray-100">학생</button>
+                    <button id="programsBtn" class="px-3 py-2 rounded-md text-sm font-medium text-gray-500 hover:text-gray-900 hover:bg-gray-100">프로그램</button>
+                    <button id="enrollmentsBtn" class="px-3 py-2 rounded-md text-sm font-medium text-gray-500 hover:text-gray-900 hover:bg-gray-100">수강</button>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content Container -->
+    <main class="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+        <div id="content" class="p-8 bg-white rounded-xl shadow-lg">
+            <!-- Content will be rendered here dynamically -->
+        </div>
+    </main>
+
+    <!-- User ID -->
+    <div class="fixed bottom-4 right-4 bg-gray-800 text-white text-xs px-3 py-1 rounded-full opacity-75">
+        User ID: <span id="userIdDisplay">...</span>
+    </div>
+
+    <!-- Modal Message Box -->
+    <div id="modal" class="fixed inset-0 bg-gray-600 bg-opacity-50 hidden overflow-y-auto h-full w-full justify-center items-center z-50">
+        <div class="bg-white p-6 rounded-xl shadow-xl w-80 max-w-sm text-center">
+            <p id="modal-message" class="text-lg font-semibold text-gray-800 mb-4"></p>
+            <button id="modal-close" class="bg-indigo-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-indigo-700 transition duration-300">확인</button>
+        </div>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, getDocs, doc, deleteDoc, onSnapshot, query, where, orderBy, getDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        
+        // Firestore Setup (do not modify these variables)
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const auth = getAuth(app);
+        
+        let userId = 'loading...';
+        let students = [];
+        let programs = [];
+        let enrollments = [];
+
+        // UI elements
+        const contentDiv = document.getElementById('content');
+        const dashboardBtn = document.getElementById('dashboardBtn');
+        const studentsBtn = document.getElementById('studentsBtn');
+        const programsBtn = document.getElementById('programsBtn');
+        const enrollmentsBtn = document.getElementById('enrollmentsBtn');
+        const userIdDisplay = document.getElementById('userIdDisplay');
+        const modal = document.getElementById('modal');
+        const modalMessage = document.getElementById('modal-message');
+        const modalCloseBtn = document.getElementById('modal-close');
+
+        // Modal functions
+        const showMessageBox = (message) => {
+            modalMessage.textContent = message;
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+        };
+
+        modalCloseBtn.onclick = () => {
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+        };
+
+        // Initialize Firebase and set up listeners
+        const initializeFirebase = async () => {
+            try {
+                if (initialAuthToken) {
+                    await signInWithCustomToken(auth, initialAuthToken);
+                } else {
+                    await signInAnonymously(auth);
+                }
+                userId = auth.currentUser?.uid || crypto.randomUUID();
+                userIdDisplay.textContent = userId;
+
+                setupFirestoreListeners();
+                renderView('dashboard');
+            } catch (error) {
+                console.error("Firebase Initialization Error: ", error);
+                showMessageBox("로그인 오류가 발생했습니다.");
+            }
+        };
+
+        const setupFirestoreListeners = () => {
+            // Students Listener
+            const studentsCollectionRef = collection(db, `artifacts/${appId}/public/data/students`);
+            onSnapshot(query(studentsCollectionRef, orderBy("name")), (snapshot) => {
+                students = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                updateViewIfActive('students');
+            });
+
+            // Programs Listener
+            const programsCollectionRef = collection(db, `artifacts/${appId}/public/data/programs`);
+            onSnapshot(query(programsCollectionRef, orderBy("name")), (snapshot) => {
+                programs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                updateViewIfActive('programs');
+            });
+
+            // Enrollments Listener
+            const enrollmentsCollectionRef = collection(db, `artifacts/${appId}/public/data/enrollments`);
+            onSnapshot(query(enrollmentsCollectionRef, orderBy("studentId")), (snapshot) => {
+                enrollments = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                updateViewIfActive('enrollments');
+            });
+        };
+
+        const updateViewIfActive = (viewName) => {
+            const currentView = contentDiv.dataset.currentView;
+            if (currentView === viewName) {
+                renderView(viewName);
+            }
+        };
+
+        // Add Student
+        const addStudent = async (event) => {
+            event.preventDefault();
+            const name = event.target.name.value;
+            const phone = event.target.phone.value;
+            if (!name || !phone) {
+                showMessageBox('학생 이름과 전화번호를 모두 입력해주세요.');
+                return;
+            }
+            try {
+                await addDoc(collection(db, `artifacts/${appId}/public/data/students`), { name, phone });
+                showMessageBox('학생이 성공적으로 등록되었습니다.');
+                event.target.reset();
+            } catch (error) {
+                console.error("Error adding student: ", error);
+                showMessageBox('학생 등록 중 오류가 발생했습니다.');
+            }
+        };
+
+        // Add Program
+        const addProgram = async (event) => {
+            event.preventDefault();
+            const name = event.target.name.value;
+            const price = parseInt(event.target.price.value);
+            if (!name || isNaN(price)) {
+                showMessageBox('프로그램 이름과 수강료를 모두 입력해주세요.');
+                return;
+            }
+            try {
+                await addDoc(collection(db, `artifacts/${appId}/public/data/programs`), { name, price });
+                showMessageBox('프로그램이 성공적으로 등록되었습니다.');
+                event.target.reset();
+            } catch (error) {
+                console.error("Error adding program: ", error);
+                showMessageBox('프로그램 등록 중 오류가 발생했습니다.');
+            }
+        };
+
+        // Add Enrollment
+        const addEnrollment = async (event) => {
+            event.preventDefault();
+            const studentId = event.target.studentId.value;
+            const programId = event.target.programId.value;
+            if (!studentId || !programId) {
+                showMessageBox('학생과 프로그램을 모두 선택해주세요.');
+                return;
+            }
+            try {
+                const existingEnrollmentQuery = query(
+                    collection(db, `artifacts/${appId}/public/data/enrollments`),
+                    where("studentId", "==", studentId),
+                    where("programId", "==", programId)
+                );
+                const existingEnrollmentSnapshot = await getDocs(existingEnrollmentQuery);
+                if (!existingEnrollmentSnapshot.empty) {
+                    showMessageBox('이미 등록된 수강 내역입니다.');
+                    return;
+                }
+
+                await addDoc(collection(db, `artifacts/${appId}/public/data/enrollments`), { studentId, programId });
+                showMessageBox('수강 신청이 성공적으로 완료되었습니다.');
+                event.target.reset();
+            } catch (error) {
+                console.error("Error adding enrollment: ", error);
+                showMessageBox('수강 신청 중 오류가 발생했습니다.');
+            }
+        };
+
+        // Delete Enrollment
+        const deleteEnrollment = async (id) => {
+            try {
+                await deleteDoc(doc(db, `artifacts/${appId}/public/data/enrollments`, id));
+                showMessageBox('수강 내역이 삭제되었습니다.');
+            } catch (error) {
+                console.error("Error deleting enrollment: ", error);
+                showMessageBox('수강 내역 삭제 중 오류가 발생했습니다.');
+            }
+        };
+        
+        // Render functions for each view
+        const renderDashboard = () => {
+            const totalRevenue = enrollments.reduce((sum, e) => {
+                const program = programs.find(p => p.id === e.programId);
+                return sum + (program ? program.price : 0);
+            }, 0);
+            
+            contentDiv.innerHTML = `
+                <h2 class="text-3xl font-bold text-gray-800 mb-6">대시보드</h2>
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                    <div class="bg-white p-6 rounded-lg shadow-md border-t-4 border-indigo-500">
+                        <p class="text-sm text-gray-500 font-medium">총 학생 수</p>
+                        <p class="text-4xl font-bold text-gray-900 mt-1">${students.length}</p>
+                    </div>
+                    <div class="bg-white p-6 rounded-lg shadow-md border-t-4 border-emerald-500">
+                        <p class="text-sm text-gray-500 font-medium">총 프로그램 수</p>
+                        <p class="text-4xl font-bold text-gray-900 mt-1">${programs.length}</p>
+                    </div>
+                    <div class="bg-white p-6 rounded-lg shadow-md border-t-4 border-sky-500">
+                        <p class="text-sm text-gray-500 font-medium">총 수강 건수</p>
+                        <p class="text-4xl font-bold text-gray-900 mt-1">${enrollments.length}</p>
+                    </div>
+                    <div class="bg-white p-6 rounded-lg shadow-md border-t-4 border-purple-500">
+                        <p class="text-sm text-gray-500 font-medium">예상 총 매출</p>
+                        <p class="text-4xl font-bold text-gray-900 mt-1">${totalRevenue.toLocaleString()}원</p>
+                    </div>
+                </div>
+            `;
+        };
+
+        const renderStudents = () => {
+            contentDiv.innerHTML = `
+                <h2 class="text-3xl font-bold text-gray-800 mb-6">학생 관리</h2>
+                <form id="studentForm" class="bg-white p-6 rounded-lg shadow-md mb-8">
+                    <h3 class="text-xl font-semibold text-gray-700 mb-4">학생 추가</h3>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <input type="text" name="name" placeholder="학생 이름" class="p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                        <input type="text" name="phone" placeholder="전화번호" class="p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                    </div>
+                    <button type="submit" class="w-full mt-4 bg-indigo-600 text-white font-semibold py-3 rounded-lg hover:bg-indigo-700 transition duration-300">학생 등록</button>
+                </form>
+                <h3 class="text-xl font-semibold text-gray-700 mb-4">학생 목록 (총 ${students.length}명)</h3>
+                <div class="bg-white rounded-lg shadow-md overflow-hidden">
+                    <ul class="divide-y divide-gray-200">
+                        ${students.map(s => `
+                            <li class="p-4 flex justify-between items-center hover:bg-gray-50 transition duration-150">
+                                <div>
+                                    <p class="text-lg font-medium text-gray-900">${s.name}</p>
+                                    <p class="text-sm text-gray-500">${s.phone}</p>
+                                </div>
+                            </li>
+                        `).join('')}
+                    </ul>
+                </div>
+            `;
+            document.getElementById('studentForm').addEventListener('submit', addStudent);
+        };
+
+        const renderPrograms = () => {
+            contentDiv.innerHTML = `
+                <h2 class="text-3xl font-bold text-gray-800 mb-6">프로그램 관리</h2>
+                <form id="programForm" class="bg-white p-6 rounded-lg shadow-md mb-8">
+                    <h3 class="text-xl font-semibold text-gray-700 mb-4">프로그램 추가</h3>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <input type="text" name="name" placeholder="프로그램 이름" class="p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+                        <input type="number" name="price" placeholder="수강료 (원)" class="p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+                    </div>
+                    <button type="submit" class="w-full mt-4 bg-emerald-600 text-white font-semibold py-3 rounded-lg hover:bg-emerald-700 transition duration-300">프로그램 등록</button>
+                </form>
+                <h3 class="text-xl font-semibold text-gray-700 mb-4">프로그램 목록 (총 ${programs.length}개)</h3>
+                <div class="bg-white rounded-lg shadow-md overflow-hidden">
+                    <ul class="divide-y divide-gray-200">
+                        ${programs.map(p => `
+                            <li class="p-4 flex justify-between items-center hover:bg-gray-50 transition duration-150">
+                                <div>
+                                    <p class="text-lg font-medium text-gray-900">${p.name}</p>
+                                    <p class="text-sm text-gray-500">${p.price.toLocaleString()}원</p>
+                                </div>
+                            </li>
+                        `).join('')}
+                    </ul>
+                </div>
+            `;
+            document.getElementById('programForm').addEventListener('submit', addProgram);
+        };
+
+        const renderEnrollments = () => {
+            const studentOptions = students.map(s => `<option value="${s.id}">${s.name}</option>`).join('');
+            const programOptions = programs.map(p => `<option value="${p.id}">${p.name} (${p.price.toLocaleString()}원)</option>`).join('');
+
+            const getStudentName = (id) => {
+                const student = students.find(s => s.id === id);
+                return student ? student.name : '알 수 없음';
+            };
+
+            const getProgramInfo = (id) => {
+                const program = programs.find(p => p.id === id);
+                return program ? `${program.name} (${program.price.toLocaleString()}원)` : '알 수 없음';
+            };
+
+            contentDiv.innerHTML = `
+                <h2 class="text-3xl font-bold text-gray-800 mb-6">수강 관리</h2>
+                <form id="enrollmentForm" class="bg-white p-6 rounded-lg shadow-md mb-8">
+                    <h3 class="text-xl font-semibold text-gray-700 mb-4">수강 신청</h3>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <select name="studentId" class="p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500">
+                            <option value="">학생 선택</option>
+                            ${studentOptions}
+                        </select>
+                        <select name="programId" class="p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500">
+                            <option value="">프로그램 선택</option>
+                            ${programOptions}
+                        </select>
+                    </div>
+                    <button type="submit" class="w-full mt-4 bg-sky-600 text-white font-semibold py-3 rounded-lg hover:bg-sky-700 transition duration-300">수강 신청</button>
+                </form>
+
+                <h3 class="text-xl font-semibold text-gray-700 mb-4">수강 현황 (총 ${enrollments.length}건)</h3>
+                <div class="bg-white rounded-lg shadow-md overflow-hidden">
+                    <ul class="divide-y divide-gray-200">
+                        ${enrollments.map(e => `
+                            <li class="p-4 flex justify-between items-center hover:bg-gray-50 transition duration-150">
+                                <div>
+                                    <p class="text-lg font-medium text-gray-900">${getStudentName(e.studentId)}</p>
+                                    <p class="text-sm text-gray-500">${getProgramInfo(e.programId)}</p>
+                                </div>
+                                <button onclick="deleteEnrollment('${e.id}')" class="bg-red-500 text-white px-3 py-1 rounded-full text-sm hover:bg-red-600 transition duration-300">삭제</button>
+                            </li>
+                        `).join('')}
+                    </ul>
+                </div>
+            `;
+            document.getElementById('enrollmentForm').addEventListener('submit', addEnrollment);
+        };
+        
+        // Navigation and initial render
+        const renderView = (view) => {
+            contentDiv.dataset.currentView = view;
+            const buttons = [dashboardBtn, studentsBtn, programsBtn, enrollmentsBtn];
+            buttons.forEach(btn => {
+                btn.classList.remove('bg-indigo-100', 'text-indigo-700', 'bg-emerald-100', 'text-emerald-700', 'bg-sky-100', 'text-sky-700');
+                btn.classList.add('text-gray-500', 'hover:text-gray-900', 'hover:bg-gray-100');
+            });
+
+            switch(view) {
+                case 'dashboard':
+                    renderDashboard();
+                    dashboardBtn.classList.add('bg-indigo-100', 'text-indigo-700');
+                    break;
+                case 'students':
+                    renderStudents();
+                    studentsBtn.classList.add('bg-indigo-100', 'text-indigo-700');
+                    break;
+                case 'programs':
+                    renderPrograms();
+                    programsBtn.classList.add('bg-indigo-100', 'text-indigo-700');
+                    break;
+                case 'enrollments':
+                    renderEnrollments();
+                    enrollmentsBtn.classList.add('bg-indigo-100', 'text-indigo-700');
+                    break;
+            }
+        };
+
+        dashboardBtn.addEventListener('click', () => renderView('dashboard'));
+        studentsBtn.addEventListener('click', () => renderView('students'));
+        programsBtn.addEventListener('click', () => renderView('programs'));
+        enrollmentsBtn.addEventListener('click', () => renderView('enrollments'));
+
+        // Expose deleteEnrollment to the global scope for onclick
+        window.deleteEnrollment = deleteEnrollment;
+
+        // Start the app on window load
+        window.onload = initializeFirebase;
+    </script>
+</body>
+</html>
