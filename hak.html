@@ -1,0 +1,419 @@
+import React, { useState, useEffect } from 'react';
+import { initializeApp } from 'firebase/app';
+import { getFirestore, collection, addDoc, getDocs, updateDoc, doc, deleteDoc, onSnapshot, query, where, orderBy } from 'firebase/firestore';
+import { getAuth, signInAnonymously, signInWithCustomToken } from 'firebase/auth';
+
+// Firebase configuration from environment variables
+const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+// Initialize Firebase
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+const auth = getAuth(app);
+
+const App = () => {
+  const [isAuthReady, setIsAuthReady] = useState(false);
+  const [userId, setUserId] = useState(null);
+  const [students, setStudents] = useState([]);
+  const [programs, setPrograms] = useState([]);
+  const [enrollments, setEnrollments] = useState([]);
+  const [studentForm, setStudentForm] = useState({ name: '', phone: '' });
+  const [programForm, setProgramForm] = useState({ name: '', price: '' });
+  const [enrollmentForm, setEnrollmentForm] = useState({ studentId: '', programId: '' });
+  const [view, setView] = useState('dashboard');
+  const [showModal, setShowModal] = useState(false);
+  const [modalMessage, setModalMessage] = useState('');
+
+  // Firebase Auth and Firestore Initialization
+  useEffect(() => {
+    const initializeFirebase = async () => {
+      if (initialAuthToken) {
+        await signInWithCustomToken(auth, initialAuthToken);
+      } else {
+        await signInAnonymously(auth);
+      }
+      setIsAuthReady(true);
+      setUserId(auth.currentUser?.uid || crypto.randomUUID());
+    };
+
+    if (!isAuthReady) {
+      initializeFirebase();
+    }
+  }, [isAuthReady]);
+
+  // Firestore Listeners
+  useEffect(() => {
+    if (!isAuthReady || !userId) return;
+
+    // Listen to students collection
+    const studentsCollectionRef = collection(db, `artifacts/${appId}/public/data/students`);
+    const qStudents = query(studentsCollectionRef, orderBy("name"));
+    const unsubscribeStudents = onSnapshot(qStudents, (snapshot) => {
+      const studentsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setStudents(studentsData);
+    });
+
+    // Listen to programs collection
+    const programsCollectionRef = collection(db, `artifacts/${appId}/public/data/programs`);
+    const qPrograms = query(programsCollectionRef, orderBy("name"));
+    const unsubscribePrograms = onSnapshot(qPrograms, (snapshot) => {
+      const programsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setPrograms(programsData);
+    });
+
+    // Listen to enrollments collection
+    const enrollmentsCollectionRef = collection(db, `artifacts/${appId}/public/data/enrollments`);
+    const qEnrollments = query(enrollmentsCollectionRef, orderBy("studentId"));
+    const unsubscribeEnrollments = onSnapshot(qEnrollments, (snapshot) => {
+      const enrollmentsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setEnrollments(enrollmentsData);
+    });
+
+    return () => {
+      unsubscribeStudents();
+      unsubscribePrograms();
+      unsubscribeEnrollments();
+    };
+  }, [isAuthReady, userId]);
+
+  // Modal handler
+  const showMessageBox = (message) => {
+    setModalMessage(message);
+    setShowModal(true);
+  };
+
+  // Student CRUD
+  const handleStudentChange = (e) => setStudentForm({ ...studentForm, [e.target.name]: e.target.value });
+
+  const addStudent = async (e) => {
+    e.preventDefault();
+    try {
+      if (!studentForm.name || !studentForm.phone) {
+        showMessageBox('학생 이름과 전화번호를 모두 입력해주세요.');
+        return;
+      }
+      await addDoc(collection(db, `artifacts/${appId}/public/data/students`), studentForm);
+      setStudentForm({ name: '', phone: '' });
+      showMessageBox('학생이 성공적으로 등록되었습니다.');
+    } catch (error) {
+      console.error("학생 추가 오류:", error);
+      showMessageBox('학생 등록 중 오류가 발생했습니다.');
+    }
+  };
+
+  // Program CRUD
+  const handleProgramChange = (e) => setProgramForm({ ...programForm, [e.target.name]: e.target.value });
+
+  const addProgram = async (e) => {
+    e.preventDefault();
+    try {
+      if (!programForm.name || !programForm.price) {
+        showMessageBox('프로그램 이름과 수강료를 모두 입력해주세요.');
+        return;
+      }
+      await addDoc(collection(db, `artifacts/${appId}/public/data/programs`), { ...programForm, price: Number(programForm.price) });
+      setProgramForm({ name: '', price: '' });
+      showMessageBox('프로그램이 성공적으로 등록되었습니다.');
+    } catch (error) {
+      console.error("프로그램 추가 오류:", error);
+      showMessageBox('프로그램 등록 중 오류가 발생했습니다.');
+    }
+  };
+
+  // Enrollment CRUD
+  const handleEnrollmentChange = (e) => setEnrollmentForm({ ...enrollmentForm, [e.target.name]: e.target.value });
+
+  const addEnrollment = async (e) => {
+    e.preventDefault();
+    try {
+      if (!enrollmentForm.studentId || !enrollmentForm.programId) {
+        showMessageBox('학생과 프로그램을 모두 선택해주세요.');
+        return;
+      }
+      const existingEnrollmentQuery = query(
+        collection(db, `artifacts/${appId}/public/data/enrollments`),
+        where("studentId", "==", enrollmentForm.studentId),
+        where("programId", "==", enrollmentForm.programId)
+      );
+      const existingEnrollmentSnapshot = await getDocs(existingEnrollmentQuery);
+      if (!existingEnrollmentSnapshot.empty) {
+        showMessageBox('이미 등록된 수강 내역입니다.');
+        return;
+      }
+
+      await addDoc(collection(db, `artifacts/${appId}/public/data/enrollments`), enrollmentForm);
+      setEnrollmentForm({ studentId: '', programId: '' });
+      showMessageBox('수강 신청이 성공적으로 완료되었습니다.');
+    } catch (error) {
+      console.error("수강 신청 오류:", error);
+      showMessageBox('수강 신청 중 오류가 발생했습니다.');
+    }
+  };
+
+  const deleteEnrollment = async (id) => {
+    try {
+      await deleteDoc(doc(db, `artifacts/${appId}/public/data/enrollments`, id));
+      showMessageBox('수강 내역이 삭제되었습니다.');
+    } catch (error) {
+      console.error("수강 내역 삭제 오류:", error);
+      showMessageBox('수강 내역 삭제 중 오류가 발생했습니다.');
+    }
+  };
+
+  // Helper functions for display
+  const getStudentName = (id) => {
+    const student = students.find(s => s.id === id);
+    return student ? student.name : '알 수 없음';
+  };
+
+  const getProgramInfo = (id) => {
+    const program = programs.find(p => p.id === id);
+    return program ? `${program.name} (${program.price.toLocaleString()}원)` : '알 수 없음';
+  };
+
+  const enrolledStudents = enrollments.map(e => ({
+    ...e,
+    studentName: getStudentName(e.studentId),
+    programInfo: getProgramInfo(e.programId)
+  }));
+  
+  const totalStudents = students.length;
+  const totalPrograms = programs.length;
+  const totalEnrollments = enrollments.length;
+
+  const totalRevenue = enrollments.reduce((sum, e) => {
+      const program = programs.find(p => p.id === e.programId);
+      return sum + (program ? program.price : 0);
+  }, 0);
+
+  const Dashboard = () => (
+    <div className="p-8">
+      <h2 className="text-3xl font-bold text-gray-800 mb-6">대시보드</h2>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+        <div className="bg-white p-6 rounded-lg shadow-md border-t-4 border-indigo-500">
+          <p className="text-sm text-gray-500 font-medium">총 학생 수</p>
+          <p className="text-4xl font-bold text-gray-900 mt-1">{totalStudents}</p>
+        </div>
+        <div className="bg-white p-6 rounded-lg shadow-md border-t-4 border-emerald-500">
+          <p className="text-sm text-gray-500 font-medium">총 프로그램 수</p>
+          <p className="text-4xl font-bold text-gray-900 mt-1">{totalPrograms}</p>
+        </div>
+        <div className="bg-white p-6 rounded-lg shadow-md border-t-4 border-sky-500">
+          <p className="text-sm text-gray-500 font-medium">총 수강 건수</p>
+          <p className="text-4xl font-bold text-gray-900 mt-1">{totalEnrollments}</p>
+        </div>
+        <div className="bg-white p-6 rounded-lg shadow-md border-t-4 border-purple-500">
+          <p className="text-sm text-gray-500 font-medium">예상 총 매출</p>
+          <p className="text-4xl font-bold text-gray-900 mt-1">{totalRevenue.toLocaleString()}원</p>
+        </div>
+      </div>
+    </div>
+  );
+
+  const StudentManager = () => (
+    <div className="p-8">
+      <h2 className="text-3xl font-bold text-gray-800 mb-6">학생 관리</h2>
+      <form onSubmit={addStudent} className="bg-white p-6 rounded-lg shadow-md mb-8">
+        <h3 className="text-xl font-semibold text-gray-700 mb-4">학생 추가</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <input
+            type="text"
+            name="name"
+            value={studentForm.name}
+            onChange={handleStudentChange}
+            placeholder="학생 이름"
+            className="p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          />
+          <input
+            type="text"
+            name="phone"
+            value={studentForm.phone}
+            onChange={handleStudentChange}
+            placeholder="전화번호"
+            className="p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          />
+        </div>
+        <button type="submit" className="w-full mt-4 bg-indigo-600 text-white font-semibold py-3 rounded-lg hover:bg-indigo-700 transition duration-300">
+          학생 등록
+        </button>
+      </form>
+
+      <h3 className="text-xl font-semibold text-gray-700 mb-4">학생 목록 (총 {students.length}명)</h3>
+      <div className="bg-white rounded-lg shadow-md overflow-hidden">
+        <ul className="divide-y divide-gray-200">
+          {students.map(student => (
+            <li key={student.id} className="p-4 flex justify-between items-center hover:bg-gray-50 transition duration-150">
+              <div>
+                <p className="text-lg font-medium text-gray-900">{student.name}</p>
+                <p className="text-sm text-gray-500">{student.phone}</p>
+              </div>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  );
+
+  const ProgramManager = () => (
+    <div className="p-8">
+      <h2 className="text-3xl font-bold text-gray-800 mb-6">프로그램 관리</h2>
+      <form onSubmit={addProgram} className="bg-white p-6 rounded-lg shadow-md mb-8">
+        <h3 className="text-xl font-semibold text-gray-700 mb-4">프로그램 추가</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <input
+            type="text"
+            name="name"
+            value={programForm.name}
+            onChange={handleProgramChange}
+            placeholder="프로그램 이름"
+            className="p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
+          />
+          <input
+            type="number"
+            name="price"
+            value={programForm.price}
+            onChange={handleProgramChange}
+            placeholder="수강료 (원)"
+            className="p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
+          />
+        </div>
+        <button type="submit" className="w-full mt-4 bg-emerald-600 text-white font-semibold py-3 rounded-lg hover:bg-emerald-700 transition duration-300">
+          프로그램 등록
+        </button>
+      </form>
+
+      <h3 className="text-xl font-semibold text-gray-700 mb-4">프로그램 목록 (총 {programs.length}개)</h3>
+      <div className="bg-white rounded-lg shadow-md overflow-hidden">
+        <ul className="divide-y divide-gray-200">
+          {programs.map(program => (
+            <li key={program.id} className="p-4 flex justify-between items-center hover:bg-gray-50 transition duration-150">
+              <div>
+                <p className="text-lg font-medium text-gray-900">{program.name}</p>
+                <p className="text-sm text-gray-500">{program.price.toLocaleString()}원</p>
+              </div>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  );
+
+  const EnrollmentManager = () => (
+    <div className="p-8">
+      <h2 className="text-3xl font-bold text-gray-800 mb-6">수강 관리</h2>
+      <form onSubmit={addEnrollment} className="bg-white p-6 rounded-lg shadow-md mb-8">
+        <h3 className="text-xl font-semibold text-gray-700 mb-4">수강 신청</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <select
+            name="studentId"
+            value={enrollmentForm.studentId}
+            onChange={handleEnrollmentChange}
+            className="p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500"
+          >
+            <option value="">학생 선택</option>
+            {students.map(student => (
+              <option key={student.id} value={student.id}>{student.name}</option>
+            ))}
+          </select>
+          <select
+            name="programId"
+            value={enrollmentForm.programId}
+            onChange={handleEnrollmentChange}
+            className="p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500"
+          >
+            <option value="">프로그램 선택</option>
+            {programs.map(program => (
+              <option key={program.id} value={program.id}>{program.name} ({program.price.toLocaleString()}원)</option>
+            ))}
+          </select>
+        </div>
+        <button type="submit" className="w-full mt-4 bg-sky-600 text-white font-semibold py-3 rounded-lg hover:bg-sky-700 transition duration-300">
+          수강 신청
+        </button>
+      </form>
+
+      <h3 className="text-xl font-semibold text-gray-700 mb-4">수강 현황 (총 {enrollments.length}건)</h3>
+      <div className="bg-white rounded-lg shadow-md overflow-hidden">
+        <ul className="divide-y divide-gray-200">
+          {enrolledStudents.map(enrollment => (
+            <li key={enrollment.id} className="p-4 flex justify-between items-center hover:bg-gray-50 transition duration-150">
+              <div>
+                <p className="text-lg font-medium text-gray-900">{enrollment.studentName}</p>
+                <p className="text-sm text-gray-500">{enrollment.programInfo}</p>
+              </div>
+              <button
+                onClick={() => deleteEnrollment(enrollment.id)}
+                className="bg-red-500 text-white px-3 py-1 rounded-full text-sm hover:bg-red-600 transition duration-300"
+              >
+                삭제
+              </button>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  );
+
+  const renderView = () => {
+    switch(view) {
+      case 'dashboard':
+        return <Dashboard />;
+      case 'students':
+        return <StudentManager />;
+      case 'programs':
+        return <ProgramManager />;
+      case 'enrollments':
+        return <EnrollmentManager />;
+      default:
+        return <Dashboard />;
+    }
+  };
+
+  return (
+    <div className="bg-gray-100 min-h-screen">
+      {/* Navbar */}
+      <nav className="bg-white shadow-lg">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between h-16 items-center">
+            <h1 className="text-2xl font-bold text-gray-900">수강 관리</h1>
+            <div className="flex space-x-4">
+              <button onClick={() => setView('dashboard')} className={`px-3 py-2 rounded-md text-sm font-medium ${view === 'dashboard' ? 'bg-indigo-100 text-indigo-700' : 'text-gray-500 hover:text-gray-900'}`}>대시보드</button>
+              <button onClick={() => setView('students')} className={`px-3 py-2 rounded-md text-sm font-medium ${view === 'students' ? 'bg-indigo-100 text-indigo-700' : 'text-gray-500 hover:text-gray-900'}`}>학생</button>
+              <button onClick={() => setView('programs')} className={`px-3 py-2 rounded-md text-sm font-medium ${view === 'programs' ? 'bg-indigo-100 text-indigo-700' : 'text-gray-500 hover:text-gray-900'}`}>프로그램</button>
+              <button onClick={() => setView('enrollments')} className={`px-3 py-2 rounded-md text-sm font-medium ${view === 'enrollments' ? 'bg-indigo-100 text-indigo-700' : 'text-gray-500 hover:text-gray-900'}`}>수강</button>
+            </div>
+          </div>
+        </div>
+      </nav>
+
+      {/* Main Content */}
+      <main className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+        {renderView()}
+      </main>
+
+      {/* User ID */}
+      <div className="fixed bottom-4 right-4 bg-gray-800 text-white text-xs px-3 py-1 rounded-full opacity-75">
+          User ID: {userId}
+      </div>
+
+      {/* Modal Message Box */}
+      {showModal && (
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full flex justify-center items-center z-50">
+          <div className="bg-white p-6 rounded-xl shadow-xl w-80 max-w-sm text-center">
+            <p className="text-lg font-semibold text-gray-800 mb-4">{modalMessage}</p>
+            <button
+              onClick={() => setShowModal(false)}
+              className="bg-indigo-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-indigo-700 transition duration-300"
+            >
+              확인
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default App;
