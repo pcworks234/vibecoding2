@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>거래처별 거래 실적 보고서</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6;
+        }
+        .container {
+            max-width: 960px;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 flex justify-center items-start min-h-screen py-10">
+    <div class="container mx-4 p-8 bg-white rounded-xl shadow-lg">
+        <h1 class="text-3xl font-bold text-gray-800 text-center mb-6">거래처별 거래 실적 보고서</h1>
+        <p class="text-center text-gray-600 mb-8">2025년 1월 1일 ~ 1월 20일</p>
+        
+        <div class="space-y-12">
+            <!-- 1. 거래처별 총 거래 금액 및 비중 분석 -->
+            <div class="bg-gray-50 p-6 rounded-lg shadow-inner">
+                <h2 class="text-2xl font-semibold text-gray-700 mb-4">1. 거래처별 총 거래 금액 및 비중 분석</h2>
+                <p class="text-gray-600 mb-6">
+                    2025년 1월 1일부터 20일까지의 총 거래 금액은 **4,910,192원**으로 집계되었습니다. 이 중 **한빛상사**가 전체 거래액의 **27.2%**를 차지하며 가장 높은 실적을 보였습니다. 이는 한빛상사가 우리 회사의 주요 매출 거래처임을 시사합니다. 반면, **삼정유통**은 가장 낮은 비중인 2.0%를 차지했습니다.
+                </p>
+                <div class="h-80">
+                    <canvas id="totalSalesChart"></canvas>
+                </div>
+            </div>
+
+            <!-- 2. 거래처별 매입/매출 비중 분석 -->
+            <div class="bg-gray-50 p-6 rounded-lg shadow-inner">
+                <h2 class="text-2xl font-semibold text-gray-700 mb-4">2. 거래처별 매입/매출 비중 분석</h2>
+                <p class="text-gray-600 mb-6">
+                    각 거래처와의 거래 성격을 더 깊이 이해하기 위해 매입과 매출 비중을 분석했습니다. **한빛상사**는 **100% 매출** 거래만 발생했으며, **동서상사**와 **삼정유통**은 **100% 매입** 거래만 이루어졌습니다. 이는 각 거래처와의 관계가 명확히 구분되어 있음을 보여줍니다.
+                </p>
+                <div class="h-80">
+                    <canvas id="salesPurchaseChart"></canvas>
+                </div>
+            </div>
+
+            <!-- 3. 거래처별 평균 거래 금액 분석 -->
+            <div class="bg-gray-50 p-6 rounded-lg shadow-inner">
+                <h2 class="text-2xl font-semibold text-gray-700 mb-4">3. 거래처별 평균 거래 금액 분석</h2>
+                <p class="text-gray-600 mb-6">
+                    건당 평균 거래 금액은 거래의 규모를 파악하는 데 중요한 지표입니다. **한빛상사**는 건수가 적음에도 불구하고 건당 **평균 669,611원**으로 가장 높은 거래 규모를 기록했습니다. 이는 대규모 거래가 주로 이루어지는 핵심 거래처임을 의미합니다. 반면, **에코마트**와 **그린푸드**는 거래 건수가 가장 많지만, 건당 평균 금액은 상대적으로 낮아 소규모 거래가 빈번히 발생하는 것으로 분석됩니다.
+                </p>
+                <div class="h-80">
+                    <canvas id="averageTransactionChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <p class="mt-12 text-center text-gray-500">
+            본 보고서는 현재까지의 거래 실적을 명확히 보여주며, 앞으로의 거래 전략을 수립하는 데 도움이 될 것입니다.
+        </p>
+
+    </div>
+
+    <script>
+        // Raw data
+        const rawData = [
+            { "거래처명": "에코마트", "거래형태": "매출", "거래금액(원)": 69991 },
+            { "거래처명": "에코마트", "거래형태": "매출", "거래금액(원)": 821987 },
+            { "거래처명": "동서상사", "거래형태": "매입", "거래금액(원)": 496822 },
+            { "거래처명": "한빛상사", "거래형태": "매출", "거래금액(원)": 709784 },
+            { "거래처명": "더블유상회", "거래형태": "매입", "거래금액(원)": 395610 },
+            { "거래처명": "에코마트", "거래형태": "매입", "거래금액(원)": 380567 },
+            { "거래처명": "그린푸드", "거래형태": "매입", "거래금액(원)": 353925 },
+            { "거래처명": "한빛상사", "거래형태": "매출", "거래금액(원)": 632032 },
+            { "거래처명": "삼정유통", "거래형태": "매출", "거래금액(원)": 546482 },
+            { "거래처명": "삼정유통", "거래형태": "매입", "거래금액(원)": 148231 },
+            { "거래처명": "더블유상회", "거래형태": "매입", "거래금액(원)": 440136 },
+            { "거래처명": "더블유상회", "거래형태": "매입", "거래금액(원)": 297826 },
+            { "거래처명": "동서상사", "거래형태": "매입", "거래금액(원)": 741276 },
+            { "거래처명": "삼정유통", "거래형태": "매입", "거래금액(원)": 886997 },
+            { "거래처명": "스타벅스", "거래형태": "매출", "거래금액(원)": 671470 },
+            { "거래처명": "그린푸드", "거래형태": "매입", "거래금액(원)": 140975 },
+            { "거래처명": "그린푸드", "거래형태": "매출", "거래금액(원)": 327387 },
+            { "거래처명": "에코마트", "거래형태": "매입", "거래금액(원)": 987398 },
+            { "거래처명": "그린푸드", "거래형태": "매입", "거래금액(원)": 433076 },
+            { "거래처명": "에코마트", "거래형태": "매입", "거래금액(원)": 921815 }
+        ];
+
+        // 1. 거래처별 총 거래 금액 및 비중 분석
+        const totalSales = {};
+        rawData.forEach(item => {
+            const partner = item['거래처명'];
+            const amount = item['거래금액(원)'];
+            totalSales[partner] = (totalSales[partner] || 0) + amount;
+        });
+        
+        const totalPartners = Object.keys(totalSales).filter(key => key !== '스타벅스').sort((a,b) => totalSales[b] - totalSales[a]);
+        const totalAmounts = totalPartners.map(partner => totalSales[partner]);
+
+        const ctx1 = document.getElementById('totalSalesChart').getContext('2d');
+        new Chart(ctx1, {
+            type: 'pie',
+            data: {
+                labels: totalPartners,
+                datasets: [{
+                    label: '총 거래 금액',
+                    data: totalAmounts,
+                    backgroundColor: [
+                        '#4f46e5', '#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#6b7280'
+                    ],
+                    hoverOffset: 4
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'right',
+                        labels: {
+                            font: { size: 14 }
+                        }
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(tooltipItem) {
+                                const value = tooltipItem.raw;
+                                const total = tooltipItem.dataset.data.reduce((sum, val) => sum + val, 0);
+                                const percentage = ((value / total) * 100).toFixed(1) + '%';
+                                return `${tooltipItem.label}: ${value.toLocaleString()}원 (${percentage})`;
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        // 2. 거래처별 매입/매출 비중 분석
+        const salesPurchase = {};
+        rawData.forEach(item => {
+            const partner = item['거래처명'];
+            const type = item['거래형태'];
+            const amount = item['거래금액(원)'];
+            if (!salesPurchase[partner]) {
+                salesPurchase[partner] = { '매출': 0, '매입': 0 };
+            }
+            salesPurchase[partner][type] += amount;
+        });
+
+        const salesPurchasePartners = Object.keys(salesPurchase).filter(key => key !== '스타벅스');
+        const salesData = salesPurchasePartners.map(p => salesPurchase[p]['매출']);
+        const purchaseData = salesPurchasePartners.map(p => salesPurchase[p]['매입']);
+
+        const ctx2 = document.getElementById('salesPurchaseChart').getContext('2d');
+        new Chart(ctx2, {
+            type: 'bar',
+            data: {
+                labels: salesPurchasePartners,
+                datasets: [{
+                    label: '매출',
+                    data: salesData,
+                    backgroundColor: '#4f46e5'
+                }, {
+                    label: '매입',
+                    data: purchaseData,
+                    backgroundColor: '#3b82f6'
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { position: 'top' },
+                    title: {
+                        display: false,
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(tooltipItem) {
+                                return `${tooltipItem.dataset.label}: ${tooltipItem.raw.toLocaleString()}원`;
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        stacked: true,
+                        grid: { display: false }
+                    },
+                    y: {
+                        stacked: true,
+                        grid: { display: true, color: '#e5e7eb' },
+                        ticks: {
+                            callback: function(value) {
+                                return value.toLocaleString() + '원';
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        // 3. 거래처별 평균 거래 금액 분석
+        const avgTransactions = {};
+        const transactionCounts = {};
+
+        rawData.forEach(item => {
+            const partner = item['거래처명'];
+            const amount = item['거래금액(원)'];
+
+            if (!avgTransactions[partner]) {
+                avgTransactions[partner] = 0;
+                transactionCounts[partner] = 0;
+            }
+            avgTransactions[partner] += amount;
+            transactionCounts[partner]++;
+        });
+
+        const avgPartners = Object.keys(avgTransactions).filter(key => key !== '스타벅스').sort((a,b) => (avgTransactions[b]/transactionCounts[b]) - (avgTransactions[a]/transactionCounts[a]));
+        const avgAmounts = avgPartners.map(partner => (avgTransactions[partner] / transactionCounts[partner]).toFixed(0));
+
+        const ctx3 = document.getElementById('averageTransactionChart').getContext('2d');
+        new Chart(ctx3, {
+            type: 'bar',
+            data: {
+                labels: avgPartners,
+                datasets: [{
+                    label: '건당 평균 거래 금액',
+                    data: avgAmounts,
+                    backgroundColor: '#10b981',
+                    borderRadius: 5
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: function(tooltipItem) {
+                                return `${tooltipItem.label}: ${parseInt(tooltipItem.raw).toLocaleString()}원`;
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        grid: { display: false }
+                    },
+                    y: {
+                        grid: { display: true, color: '#e5e7eb' },
+                        ticks: {
+                            callback: function(value) {
+                                return value.toLocaleString() + '원';
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    </script>
+</body>
+</html>
